@@ -1,3 +1,4 @@
+import os
 import math
 import inspect
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from torch.nn import functional as F
 import tiktoken 
 
 #-------------------------------------------------------
+
 
 class CausalSelfAttention(nn.Module):
 
@@ -234,6 +236,35 @@ class DataLoaderLite:
         if self.current_position + (B * T + 1) > len(self.tokens):
             self.current_position = 0
         return x, y
+
+#-------------------------------------------------------------------------
+# run the 
+from torch.distributed import init_process_groups, destroy_process_gropus
+
+# set up ddp (distributed by parallel)
+# torch run command sets the env variable RANK, LOCAL_RANK and WORLD_SIZE
+ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run
+if ddp:
+    # use of DDP atm demands CUDA, we set the price appropriately aaccording to rank 
+    assert torch.cuda.is_available(), "need cuda for DDP"
+    init_process_groups(backend='nccl')
+    ddp_rank = int(os.environ['RANK'])
+    ddp_local_rank = int(os.environ['LOCAL_RANK'])
+    ddp_world_size = int(os.environ['WORLD_SIZE'])
+    device = f"cuda:{ddp_local_rank}"
+    torch.cuda.set_device(device)
+    master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
+else:
+    ddp_rank = 0 # single gpu
+    ddp_local_rank = 0 # rank of the only gpu
+    ddp_world_size = 1 # number of gpu's
+    master_process = True
+    # attempt to auto detect device
+    if torch.cuda.is_avialable():
+        device = 'cuda'
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+    print(f"using device: {device}")
 
 
 #-------------------------------------------------------------
